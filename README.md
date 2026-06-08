@@ -1,16 +1,18 @@
-# skrit protocol
+# skrit
 
-This is the **contract**. A "skrit" is *any* device that speaks this wire
-protocol and answers the self-describe commands — regardless of MCU, framework,
-or transport. The desktop app ([`../skrit`](../skrit)) and every firmware
-in [`../platforms`](../platforms) implement this and nothing app-specific.
+The **contract** the [Sutra](https://github.com/sutra-console/sutra) app and
+[Duta](https://github.com/sutra-console/duta) firmware both speak. A *skrit*
+device is **any** device that speaks this wire protocol and answers the
+self-describe commands — regardless of MCU, framework, or transport.
+
+> *skrit* — the tail of **San·skrit** (the naming family), read as **script**,
+> echoing **writ**: the written agreement two parties share.
 
 - **[PROTOCOL.md](PROTOCOL.md)** — the full spec: COBS/CRC framing, message
   types, self-describe, snippet storage.
 - **[protocol.h](protocol.h)** — portable C reference (message IDs, status &
-  capability bits, CRC-8/ATM, COBS). Shared by the C/C++ platforms
-  (`espressif`, `zephyr`, `host`, and eventually `ch55xduino`).
-- `protocol.py` — *(planned)* the same constants for the MicroPython platform.
+  capability bits, CRC-8/ATM, COBS). Used by the C/C++ firmware platforms in
+  Duta; the Sutra app mirrors it in `protocol.rs` / `ttl.ts`.
 
 ## Transports
 
@@ -19,6 +21,6 @@ CMD); BLE/TCP give one, so those carry **both** console bytes and CMD frames
 multiplexed over a single channel. A device declares its transport(s) in its
 self-description; the app routes accordingly.
 
-Implementing a new platform = implement this protocol over whatever transport
-the hardware has, answer `INFO` / `DEVICE_NAME` / `OUTPUT_DESC`, and you get the
-whole desktop app + MCP server for free.
+Implementing a new device = speak this protocol over whatever transport the
+hardware has, answer `INFO` / `DEVICE_NAME` / `OUTPUT_DESC`, and you get the
+whole Sutra app + its MCP server for free.
