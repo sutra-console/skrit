@@ -25,14 +25,14 @@ enum {
   SKRIT_OUT_DESC = 0x13,  // self-describe output: {index, type, name}
   SKRIT_INPUT_DESC = 0x14, // self-describe input: {index, type, name}
   SKRIT_INPUT_GET = 0x15,  // read input value (digital 0/1, analog 0-1023)
-  SKRIT_SNIP_LIST = 0x20,
-  SKRIT_SNIP_META = 0x21,
-  SKRIT_SNIP_READ = 0x22,
-  SKRIT_SNIP_WRITE_BEGIN = 0x23,
-  SKRIT_SNIP_WRITE_DATA = 0x24,
-  SKRIT_SNIP_WRITE_END = 0x25,
-  SKRIT_SNIP_DELETE = 0x26,
-  SKRIT_SNIP_RUN = 0x27,
+  SKRIT_MACRO_LIST = 0x20,
+  SKRIT_MACRO_META = 0x21,
+  SKRIT_MACRO_READ = 0x22,
+  SKRIT_MACRO_WRITE_BEGIN = 0x23,
+  SKRIT_MACRO_WRITE_DATA = 0x24,
+  SKRIT_MACRO_WRITE_END = 0x25,
+  SKRIT_MACRO_DELETE = 0x26,
+  SKRIT_MACRO_RUN = 0x27,
 };
 #define SKRIT_RESP 0x80
 
@@ -48,7 +48,7 @@ enum {
 
 // ---- capability bits (INFO body[3]) ----
 enum {
-  SKRIT_CAP_EEPROM = 0x01,
+  SKRIT_CAP_STORE = 0x01,
   SKRIT_CAP_OLED = 0x02,
   SKRIT_CAP_SPI = 0x04,
   SKRIT_CAP_PARITY = 0x08,
