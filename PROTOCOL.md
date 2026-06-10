@@ -72,6 +72,7 @@ Responses carry a 1-byte `STATUS` as `BODY[0]`, then type-specific data:
 | `0x04` | storage error (storage) |
 | `0x05` | not found (macro id) |
 | `0x06` | busy |
+| `0x07` | unsupported (skrit-mc tier/opcode above `macro_tier`) |
 
 A malformed or unknown request still gets a response (`TYPE|0x80`, `SEQ` echoed,
 `STATUS` set) so the app never hangs waiting.
@@ -83,7 +84,7 @@ A malformed or unknown request still gets a response (`TYPE|0x80`, `SEQ` echoed,
 | TYPE | name | request body | response body (after STATUS) |
 |------|------|--------------|------------------------------|
 | `0x01` | `PING` | — | `"PONG"` |
-| `0x02` | `INFO` | — | `fw_ver(2)`, `caps(1)`, `n_outputs(1)`, `store_kb(1)`, `proto_ver(1)`, `n_inputs(1)` |
+| `0x02` | `INFO` | — | `fw_ver(2)`, `caps(1)`, `n_outputs(1)`, `store_kb(1)`, `proto_ver(1)`, `n_inputs(1)`, `macro_tier(1)` |
 | `0x03` | `DEVICE_NAME` | — | device name string |
 | `0x10` | `OUTPUT_SET` | `index(1)`, `value(1)` | — | sets relay/LED. index: 0=R1,1=R2,2=LED |
 | `0x11` | `OUTPUT_GET` | — | `bitmap(1)` (bit0=R1,bit1=R2,bit2=LED) |
@@ -98,7 +99,7 @@ A malformed or unknown request still gets a response (`TYPE|0x80`, `SEQ` echoed,
 | `0x24` | `MACRO_WRITE_DATA` | `id(1)`, `off(2)`, `bytes…` | — |
 | `0x25` | `MACRO_WRITE_END` | `id(1)`, `crc16(2)` | — (commits; verifies) |
 | `0x26` | `MACRO_DELETE` | `id(1)` | — |
-| `0x27` | `MACRO_RUN` | `id(1)` | — | device streams the macro out the **DATA/UART** |
+| `0x27` | `MACRO_RUN` | `id(1)` | — | device runs the stored **skrit-mc** program through its VM (see *Macro bytecode*) |
 | `0x30` | `EE_READ` | `addr(2)`, `n(1)` | `bytes…` |
 | `0x31` | `EE_WRITE` | `addr(2)`, `bytes…` | — |
 | `0x40` | `CFG_GET` | `key(1)` | `value…` (e.g. default DATA baud) |
@@ -107,6 +108,11 @@ A malformed or unknown request still gets a response (`TYPE|0x80`, `SEQ` echoed,
 Multi-byte integers are **little-endian** (matches SDCC and `x86`/`arm` hosts).
 
 `caps` bitfield (INFO): bit0=persists-macros, bit1=has-OLED, bit2=has-SPI-flash, bit3=parity.
+
+`macro_tier` (INFO): the highest **skrit-mc** tier the device's VM executes — `0`=none (no
+on-device macros), `1`=open-loop replay (`EMIT`/`DELAY`/`SETOUT`), `2`=+closed-loop
+(`EXPECT`/`WAITIO`/`WAITOK`). A device returning a short INFO body (no `macro_tier` byte)
+is treated as `0`. The app refuses to save/run a program whose tier exceeds this.
 
 ---
 
@@ -123,9 +129,70 @@ host → …                                             ┘
 host → MACRO_WRITE_END(id, crc16)   ← device verifies & commits
 ```
 
-Reads mirror it with `MACRO_READ(id, off, n)`. `MACRO_RUN(id)` tells the device to
-replay the macro out the target UART itself (so the on-device menu and the app share
-one code path).
+Reads mirror it with `MACRO_READ(id, off, n)`. The stored payload is a **skrit-mc
+program** (below); `MACRO_RUN(id)` runs it through the device VM (so the on-device menu
+and the app share one code path).
+
+---
+
+## Macro bytecode (skrit-mc v1)
+
+A macro is authored as text (`STRING`, `WAITFOR`, `IF`…) and parsed to a shared IR. The
+host **compiles** that IR to a compact byte program; the device runs the program in a
+tiny VM. This is what makes on-device execution *correct* — the device never sees
+`STRING`/`WAITFOR` text, only resolved opcodes.
+
+A program is a 1-byte version followed by opcodes, terminated by `END`:
+
+```
+program := mc_ver(1) , op... , 0x00
+mc_ver   = 0x01
+```
+
+| op | name | operands | tier | effect |
+|----|------|----------|------|--------|
+| `0x00` | `END`    | — | 1 | halt (success) |
+| `0x01` | `EMIT`   | `n(1)`, `bytes[n]` | 1 | write `bytes` to DATA/UART |
+| `0x02` | `DELAY`  | `ms(2)` | 1 | pause |
+| `0x03` | `SETOUT` | `index(1)`, `val(1)` | 1 | drive output `index` (0/1) |
+| `0x10` | `EXPECT` | `timeout(2)`, `n(1)`, `bytes[n]` | 2 | match `bytes` on incoming DATA; sets outcome (match=OK, timeout=FAIL) |
+| `0x11` | `WAITIO` | `index(1)`, `cmp(1)`, `val(2)`, `timeout(2)` | 2 | poll input `index` until `value cmp val`; sets outcome (met=OK, timeout=FAIL) |
+| `0x12` | `WAITOK` | — | 2 | if last outcome is FAIL, halt the run with `STATUS` failed |
+| `0x20` | `IF`     | `cond(1)`, `skip(2)` | 2 | *reserved v2* — if outcome ≠ `cond`, jump `skip` bytes |
+| `0x21` | `ELSE`   | `skip(2)` | 2 | *reserved v2* |
+| `0x22` | `ENDIF`  | — | 2 | *reserved v2* |
+
+- Multi-byte operands are **little-endian**. `EMIT n ≤ 255` and `DELAY ms ≤ 65535`; the
+  compiler splits longer runs into multiple ops.
+- `cmp` byte (`WAITIO`): `0=>`, `1=<`, `2=>=`, `3=<=`, `4===`, `5=!=`.
+- **Outcome flag** — one boolean, init OK. `EXPECT`/`WAITIO` set it; `WAITOK` (and the
+  reserved `IF`) read it. This decouples OK/FAIL from `RUN`, so a bare `WAITFOR` timeout
+  also trips it.
+- **Compile-time-only IR** (no opcode): `TIMEOUT` is folded into each `EXPECT`/`WAITIO`
+  `timeout` field; `$Call` is inlined; `SETOUT`/`WAITIO` names are resolved to indices
+  against the connected device. `RUN`/`WAITOK`-on-`RUN`/`IF`-on-`RUN` are **app-only**
+  (tier 3) and are never compiled for a device target.
+
+### Tiers
+
+| tier | name | opcodes | model |
+|------|------|---------|-------|
+| **1** | replay | `EMIT` `DELAY` `SETOUT` `END` | open-loop — output is a fixed function of time |
+| **2** | interactive | + `EXPECT` `WAITIO` `WAITOK` | closed-loop — blocks/branches on a read |
+| **3** | app-only | `RUN` + the `WAITOK`/`IF` that ride it | host orchestration (exit codes); never on-device |
+
+A program's tier is the max tier of its opcodes. The device advertises the highest tier
+its VM runs in `INFO.macro_tier` (`0` = no VM). A device executes an op only if its tier
+≤ `macro_tier`; an over-tier op is a backstop `STATUS 0x07` (the app pre-checks via INFO).
+
+### Running a program
+
+The same bulk path carries bytecode. To **persist**, `MACRO_WRITE_*` a program to an id
+then `MACRO_RUN(id)` (requires caps bit0, *persists-macros*). For **push-and-run** with
+no storage, write to the reserved **scratch id `0xFF`** (a volatile RAM slot) and
+`MACRO_RUN(0xFF)` — this works even when the device persists nothing, bounded by RAM.
+A `CAP_STORE` device streams stored opcodes page-by-page, so persisted programs aren't
+RAM-bound.
 
 ---
 
@@ -141,8 +208,8 @@ STATUS          -> R1=0 R2=0 LED=0
 R1 ON|OFF|TOGGLE
 R2 ON|OFF|TOGGLE
 LED ON|OFF|TOGGLE
-SNIP LIST       -> id: name        (one per line)
-SNIP RUN <id>
+MACRO LIST      -> id: name        (one per line)
+MACRO RUN <id>
 HELP
 ```
 
