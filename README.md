@@ -9,18 +9,22 @@ self-describe commands — regardless of MCU, framework, or transport.
 > echoing **writ**: the written agreement two parties share.
 
 - **[PROTOCOL.md](PROTOCOL.md)** — the full spec: COBS/CRC framing, message
-  types, self-describe, snippet storage.
+  types, self-describe, serial control, reboot, skrit-mux, async events, the
+  skrit-mc macro bytecode, and snippet storage.
 - **[protocol.h](protocol.h)** — portable C reference (message IDs, status &
   capability bits, CRC-8/ATM, COBS). Used by the C/C++ firmware platforms in
   Duta; the Sutra app mirrors it in `protocol.rs` / `ttl.ts`.
 
 ## Transports
 
-The CMD protocol is transport-independent. USB gives two pipes (DATA console +
-CMD); BLE/TCP give one, so those carry **both** console bytes and CMD frames
-multiplexed over a single channel. A device declares its transport(s) in its
-self-description; the app routes accordingly.
+The CMD protocol is transport-independent. A **dual-CDC** device (e.g. CH552)
+gives two USB pipes — a raw DATA console and a framed CMD port. A **single-channel**
+device (one USB-CDC on ESP32 / Pico / nRF52840, or TCP / BLE) carries **both** over
+one stream via **skrit-mux**: every frame is `COBS(channel, payload)`, channel 0 =
+DATA, 1 = CMD. A device sets the `muxed` capability bit so the app wraps/unwraps
+instead of opening a second port. See [PROTOCOL.md → Transports](PROTOCOL.md).
 
 Implementing a new device = speak this protocol over whatever transport the
 hardware has, answer `INFO` / `DEVICE_NAME` / `OUTPUT_DESC`, and you get the
-whole Sutra app + its MCP server for free.
+whole Sutra app + its MCP server for free. (In Duta, the shared
+`platforms/common` core already does all of this — you write only a thin HAL.)

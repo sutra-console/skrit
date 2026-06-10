@@ -1,0 +1,39 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # protocol.h must compile warning-free as both C and C++ (firmware uses both),
+  # and the CRC-8/COBS helpers must round-trip the documented test vectors.
+  header:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Smoke test
+        run: |
+          cat > /tmp/smoke.c <<'EOF'
+          #include "protocol.h"
+          #include <assert.h>
+          #include <string.h>
+          int main(void) {
+            // CRC-8/ATM check vector: "123456789" -> 0xF4
+            assert(skrit_crc8((const uint8_t *)"123456789", 9) == 0xF4);
+            // COBS round-trip, including zeros
+            const uint8_t in[] = {1, 0, 2, 0, 0, 3};
+            uint8_t enc[16], dec[16];
+            size_t en = skrit_cobs_encode(in, sizeof in, enc);
+            for (size_t i = 0; i < en; i++) assert(enc[i] != 0);
+            assert(skrit_cobs_decode(enc, en, dec) == sizeof in);
+            assert(memcmp(dec, in, sizeof in) == 0);
+            // a few constants the firmware/app pin their wire format to
+            assert(SKRIT_RESP == 0x80 && SKRIT_MUX_CMD == 0x01 && SKRIT_PROTO_VER == 1);
+            return 0;
+          }
+          EOF
+          gcc -std=c11 -Wall -Wextra -Werror -I . /tmp/smoke.c -o /tmp/smoke-c && /tmp/smoke-c
+          g++ -std=c++17 -Wall -Wextra -Werror -I . -x c++ /tmp/smoke.c -o /tmp/smoke-cpp && /tmp/smoke-cpp
+          echo "protocol.h OK (C11 + C++17, CRC/COBS vectors pass)"
