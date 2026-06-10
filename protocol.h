@@ -34,6 +34,7 @@ enum {
   SKRIT_SERIAL_GET = 0x17, // -> baud(4), data_bits(1), parity(1), stop_bits(1)  (DATA UART)
   SKRIT_SERIAL_SET = 0x18, // baud(4), data_bits(1), parity(1), stop_bits(1)
   SKRIT_SERIAL_SIGNAL = 0x19, // mask(1), value(1): drive DATA modem/break lines (see SKRIT_SIG_*)
+  SKRIT_OUT_PWM = 0x1A, // index(1)[, duty(2)]: with duty = set PWM 0..1023; without = read back duty(2)
   SKRIT_MACRO_LIST = 0x20,
   SKRIT_MACRO_META = 0x21,
   SKRIT_MACRO_READ = 0x22,
@@ -88,6 +89,7 @@ enum {
   SKRIT_CAP_MUX = 0x10,    // a single endpoint carries BOTH channels (see skrit-mux)
   SKRIT_CAP_SERIAL = 0x20, // honors SERIAL_GET/SET/SIGNAL on the DATA UART
   SKRIT_CAP_REBOOT = 0x40, // honors REBOOT (incl. reboot-to-bootloader)
+  SKRIT_CAP_PWM = 0x80,    // honors OUT_PWM on at least one output
 };
 
 // ===========================================================================
@@ -116,6 +118,7 @@ enum {                        // opcodes (low nibble groups by tier)
   SKRIT_MC_EMIT = 0x01,       // n(1), bytes[n]            -> DATA/UART   [tier 1]
   SKRIT_MC_DELAY = 0x02,      // ms(2)                                    [tier 1]
   SKRIT_MC_SETOUT = 0x03,     // index(1), val(1)                         [tier 1]
+  SKRIT_MC_SETPWM = 0x04,     // index(1), duty(2) 0..1023                [tier 1]
   SKRIT_MC_EXPECT = 0x10,     // timeout(2), n(1), bytes[n] -> outcome    [tier 2]
   SKRIT_MC_WAITIO = 0x11,     // index(1), cmp(1), val(2), timeout(2)     [tier 2]
   SKRIT_MC_WAITOK = 0x12,     // halt FAIL if last outcome is FAIL        [tier 2]
@@ -132,7 +135,8 @@ enum {
 enum { SKRIT_TIER_NONE = 0, SKRIT_TIER_REPLAY = 1, SKRIT_TIER_INTERACTIVE = 2, SKRIT_TIER_APP = 3 };
 
 // ---- output control types (OUT_DESC body[2]) ----
-enum { SKRIT_CTRL_RELAY = 0, SKRIT_CTRL_LED = 1, SKRIT_CTRL_BUTTON = 2 };
+// A PWM output also answers OUT_SET/TOGGLE (0 = duty 0, 1 = full duty).
+enum { SKRIT_CTRL_RELAY = 0, SKRIT_CTRL_LED = 1, SKRIT_CTRL_BUTTON = 2, SKRIT_CTRL_PWM = 3 };
 
 // ---- input types (INPUT_DESC body[2]) ----
 enum { SKRIT_IN_DIGITAL = 0, SKRIT_IN_ANALOG = 1 };
